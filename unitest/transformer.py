@@ -4,6 +4,9 @@ import torchvision.models as models
 from torchvision import transforms
 from PIL import Image
 import torch.optim as optim
+import os
+from display_binvox import read_binvox
+import matplotlib.pyplot as plt
 
 # EfficientNet-b0 模型
 efficientnet = models.efficientnet_b0(pretrained=True)
@@ -40,7 +43,12 @@ class TransformerModel(nn.Module):
         self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=num_layers)
         self.decoder_layer = nn.TransformerDecoderLayer(d_model=input_dim, nhead=num_heads, dim_feedforward=dim_feedforward)
         self.transformer_decoder = nn.TransformerDecoder(self.decoder_layer, num_layers=num_layers)
-        self.fc_out = nn.Linear(input_dim, 4096)
+        self.fc_out = nn.Sequential(
+            nn.Linear(input_dim, 8192),
+            nn.ReLU(),
+            nn.Linear(8192, 4096),
+            nn.Sigmoid()
+        )
     
     def forward(self, src, tgt):
         memory = self.transformer_encoder(src)
@@ -56,32 +64,48 @@ transformer_model = TransformerModel()
 
 # 假設我們有 M 張照片，ground truth 為 (32, 32, 32) 的 Voxel 模型
 # 輸入照片的路徑
+base = "/Users/zhangyuchen/Documents/ws/IP_topic"
+datas_dir = "unitest/unit_input"
+floder_name = "test_data"
+os.chdir(base+"/"+datas_dir+"/"+floder_name+"/"+"models/picture")
 image_paths = ['_r_000.png', '_r_015.png', '_r_030.png', '_r_045.png', '_r_060.png', '_r_075.png', '_r_090.png', '_r_105.png']
-# ground truth Voxel 模型
-ground_truth_voxel = torch.rand((32, 32, 32))  # 這裡用隨機數據代替，實際應為真實的 Voxel 模型
 
 # 提取特徵
-features = [extract_features(image_path) for image_path in image_paths]
-features = torch.cat(features, dim=0)  # 合併為一個 tensor，形狀為 (M, 1280)
+image_features = [extract_features(image_path) for image_path in image_paths]
+image_features = torch.cat(image_features, dim=0)  # 合併為一個 tensor，形狀為 (M, 1280)
 
 # 轉換特徵
-features = feature_extractor(features)  # 形狀為 (M, 4096)
+features = feature_extractor(image_features)  # 形狀為 (M, 4096)
+
+# ground truth Voxel 模型
+ground_truth_voxel = torch.from_numpy(read_binvox(base,datas_dir,floder_name))
+
 
 # 準備 transformer 的輸入
 src = features.unsqueeze(1)  # 形狀為 (M, 1, 4096)
-tgt = torch.zeros((8, 1, 4096))  # 預設為 8 個初始的解碼輸入，形狀為 (8, 1, 4096)
+tgt_start = torch.zeros((1, 1, 4096))  # 預設為 8 個初始的解碼輸入，形狀為 (8, 1, 4096)
+tgt_ground_truth = ground_truth_voxel
+tgt_ground_truth = torch.reshape(tgt_ground_truth,(8, 1, 4096))
+tgt = torch.cat([tgt_start, tgt_ground_truth], dim=0)  # 形狀為 (9, 1, 4096)
 
 # 訓練過程
-optimizer = optim.Adam(transformer_model.parameters(), lr=1e-4)
-criterion = nn.BCEWithLogitsLoss()
+optimizer = optim.Adam(list(feature_extractor.parameters()) + 
+                       list(transformer_model.parameters()), lr=1e-4)
+criterion = nn.BCELoss()
 
-num_epochs = 1  # 訓練的總迭代次數
+num_epochs = 20  # 訓練的總迭代次數
 
 for epoch in range(num_epochs):
+    feature_extractor.train()
     transformer_model.train()
     optimizer.zero_grad()
-    output = transformer_model(src, tgt)  # 形狀為 (8, 1, 4096)
-    output = output.squeeze(1)  # 形狀為 (8, 4096)
+    features = feature_extractor(image_features)  # 確保在每個epoch中重新計算特徵
+    src = features.unsqueeze(1) 
+    output = transformer_model(src, tgt)  # 形狀為 (9, 1, 4096)
+    output = output.squeeze(1)  # 形狀為 (9, 4096)
+
+    # 將輸出移除最後一層
+    output = output[:-1]  # 形狀為 (8, 4096)
 
     # 將輸出重塑為 (32, 32, 4) 並比較 ground truth
     output = output.view(8, 32, 32, 4).permute(1, 2, 0, 3).reshape(32, 32, 32)
@@ -95,6 +119,13 @@ for epoch in range(num_epochs):
 transformer_model.eval()
 with torch.no_grad():
     output = transformer_model(src, tgt)
-    print(output.size())
+    output = output[:-1]  # 形狀為 (8, 4096)
     output = output.squeeze(1).view(8, 32, 32, 4).permute(1, 2, 0, 3).reshape(32, 32, 32)
     # 可以進行後續的處理或評估
+    print(output)
+    voxel = output.numpy()
+    voxel = voxel > 0.5
+    ax = plt.figure().add_subplot(projection='3d')
+    ax.voxels(voxel, edgecolor='k')
+
+    plt.show()
