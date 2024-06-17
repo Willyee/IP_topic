@@ -4,7 +4,3 @@ setup(
     packages = find_packages(),
 )
 
-def initial():
-    os.system('pip install -r requirements.txt')
-if __name__ == '__main__':
-    initial()
