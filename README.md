@@ -19,7 +19,7 @@ cd IP_topic
 ```
 cd lib
 rm -rf binvox_rw_py
-https://github.com/Willyee/binvox-rw-py.git
+git clone https://github.com/Willyee/binvox-rw-py.git
 mv binvox-rw-py binvox_rw_py
 cd binvox_rw_py
 git checkout IP_topic_use
@@ -34,11 +34,12 @@ python3 setup.py install --user
 
 ## usage
 由於模型的參數太大了，並且我這個並非完成的模型，所以我並未上傳模型參數
-![截圖 2024-06-23 10.41.49](https://hackmd.io/_uploads/rkcYKFB8A.png)
+![參數大小說明圖片](doc/picture1.png)
 所以我讓您自行訓練模型參數，完整訓練完大該花費5-10分鐘，因為只有放一個訓練資料而已
 
 ```
 cd unitest 
+mkdir unit_output # 我指定用來放參數的位置
 python3 transformer.py # 訓練模型
 python3 test.py # 使用模型
 ```
